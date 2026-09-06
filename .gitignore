@@ -1,0 +1,32 @@
+# Gradle
+.gradle/
+**/build/
+
+# Local SDK configuration
+local.properties
+
+# Android Studio / IntelliJ
+.idea/
+
+# Kotlin
+.kotlin/
+
+# IntelliJ project files
+*.iml
+
+# Android build / native build
+.cxx/
+.externalNativeBuild/
+
+# Android captures
+captures/
+
+# macOS
+.DS_Store
+
+# Generated APKs / bundles
+*.apk
+*.aab
+
+# Temporary files
+*.log
