@@ -190,7 +190,7 @@ Android 12 / API 31.
 
 Development target:
 
-Android 16 / API 36.
+Compile SDK 37 / Target SDK 37 (Minimum SDK 26).
 
 ---
 

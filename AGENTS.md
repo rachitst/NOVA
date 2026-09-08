@@ -247,8 +247,8 @@ Never assume that because the user said something once, a high-risk action shoul
 Current project configuration:
 
 - Minimum SDK: API 26
-- Compile SDK: API 36
-- Target SDK: API 36
+- Compile SDK: API 37
+- Target SDK: API 37
 - Primary development/test device: Android 12 / API 31
 
 Do not assume APIs behave identically across Android versions.

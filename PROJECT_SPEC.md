@@ -347,14 +347,12 @@ The model must:
 
 Initial development target:
 
-* Compile SDK: Android 16 / API 36
-* Target SDK: Android 16 / API 36
+* Compile SDK: API 37
+* Target SDK: API 37
 * Minimum SDK: API 26
 * Primary test device: Android 12 / API 31
 
 The application must account for behavior differences between Android versions.
-
-Android 16 is currently a stable Android release.
 
 ---
 

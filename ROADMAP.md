@@ -2,7 +2,7 @@
 
 ## Status
 
-🟡 Project initialization
+🟢 Phase 1 & 2 Implemented — Hands-Free Background JARVIS Voice Assistant (Foreground Service, AudioRecord, "Hey NOVA" Wake Word, Bluetooth Earphone Integration)
 
 ---
 
@@ -15,15 +15,15 @@ Create a clean, documented Android project.
 ### Tasks
 
 * [x] Create Android project
-* [ ] Verify Gradle build
-* [ ] Verify app launches
-* [ ] Initialize Git
-* [ ] Create GitHub repository
-* [ ] Add project documentation
-* [ ] Configure development rules
-* [ ] Connect physical Android device
-* [ ] Verify ADB
-* [ ] Install debug APK on device
+* [x] Verify Gradle build
+* [x] Verify app launches
+* [x] Initialize Git
+* [x] Create GitHub repository
+* [x] Add project documentation
+* [x] Configure development rules
+* [x] Connect physical Android device
+* [x] Verify ADB
+* [x] Install debug APK on device
 
 ---
 
@@ -35,13 +35,13 @@ Build the first working voice interaction.
 
 ### Features
 
-* [ ] Microphone permission
-* [ ] Manual microphone activation
-* [ ] Audio capture
-* [ ] Speech-to-text
-* [ ] Basic command parser
-* [ ] Text-to-speech
-* [ ] Basic logs
+* [x] Microphone permission
+* [x] Manual microphone activation
+* [x] Audio capture
+* [x] Speech-to-text
+* [x] Basic command parser
+* [x] Text-to-speech
+* [x] Basic logs
 
 ### First command
 
@@ -55,20 +55,23 @@ User speaks a command and NOVA successfully performs it on the physical Android 
 
 ---
 
-# Phase 2 — Wake Word
+# Phase 2 — Wake Word & Hands-Free Background Service
 
 ### Goal
 
-Allow hands-free activation.
+Allow hands-free activation and background operation (JARVIS mode).
 
 ### Features
 
-* [ ] Wake-word engine
-* [ ] "Hey NOVA"
-* [ ] Local detection
-* [ ] False-positive testing
-* [ ] Battery testing
-* [ ] Microphone lifecycle management
+* [x] Foreground Service (`NovaVoiceService`) with microphone type
+* [x] AudioRecord continuous low-power 16kHz PCM stream
+* [x] Local Wake-word engine (`WakeWordEngine` / `AcousticWakeWordEngine`)
+* [x] "Hey NOVA" acoustic keyword spotting
+* [x] Background hands-free command pipeline
+* [x] Notification control actions (`Stop`, `Mute`)
+* [x] Bluetooth earphone connection receiver & auto-activation
+* [x] In-memory low-latency audio feedback chimes
+* [x] Unit tests and device verification
 
 ---
 
