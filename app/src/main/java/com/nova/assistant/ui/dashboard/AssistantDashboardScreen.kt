@@ -66,6 +66,7 @@ fun AssistantDashboardScreen(
     onCancelVoiceEnrollment: () -> Unit,
     onDismissVoiceEnrollment: () -> Unit,
     onClearVoiceEnrollment: () -> Unit,
+    onDevTtsTestClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (uiState.isEnrollmentDialogOpen) {
@@ -125,7 +126,10 @@ fun AssistantDashboardScreen(
             // 2. DEV Diagnostic & Live Pipeline Telemetry Overlay Card (Visible in DEV mode)
             if (uiState.devTelemetry.isDevEnabled) {
                 item {
-                    DevDebugOverlayCard(telemetry = uiState.devTelemetry)
+                    DevDebugOverlayCard(
+                        telemetry = uiState.devTelemetry,
+                        onDevTtsTestClick = onDevTtsTestClick
+                    )
                 }
             }
 
@@ -632,7 +636,10 @@ fun PermissionBanner(
 }
 
 @Composable
-fun DevDebugOverlayCard(telemetry: com.nova.assistant.core.diagnostics.DevTelemetryState) {
+fun DevDebugOverlayCard(
+    telemetry: com.nova.assistant.core.diagnostics.DevTelemetryState,
+    onDevTtsTestClick: () -> Unit = {}
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -679,6 +686,15 @@ fun DevDebugOverlayCard(telemetry: com.nova.assistant.core.diagnostics.DevTeleme
                         color = Color(0xFF00E5FF)
                     )
                 }
+            }
+
+            // DEV: TTS output routing test
+            Button(
+                onClick = onDevTtsTestClick,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF).copy(alpha = 0.2f))
+            ) {
+                Text(text = "DEV: TTS OUTPUT TEST", color = Color(0xFF00E5FF))
             }
 
             // 1. Audio Energy & Peak Meter

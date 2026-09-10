@@ -139,6 +139,12 @@ class MainActivity : ComponentActivity() {
                     },
                     onClearVoiceEnrollment = {
                         viewModel.clearVoiceEnrollment()
+                    },
+                    onDevTtsTestClick = {
+                        val testIntent = Intent(this@MainActivity, NovaVoiceService::class.java).apply {
+                            action = NovaVoiceService.ACTION_DEV_TEST_TTS
+                        }
+                        this@MainActivity.startService(testIntent)
                     }
                 )
             }

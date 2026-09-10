@@ -84,34 +84,36 @@ class AudioStreamManager(
             logAvailableAudioInputDevices()
             setupBluetoothScoIfNeeded()
 
-            // Try VOICE_RECOGNITION first, fallback to MIC
+            // VOICE_RECOGNITION first for full mic gain; on this device's SCO path it is the only
+            // source that delivers audio at a level usable by the KWS/ASR models.
             var record: AudioRecord? = null
-            try {
-                record = AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                    sampleRate,
-                    channelConfig,
-                    audioFormat,
-                    bufferSize
-                )
-            } catch (e: Exception) {
-                NovaLogger.w("AudioStreamManager", "VOICE_RECOGNITION audio source failed, falling back to MIC", e)
+            for (source in intArrayOf(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.MIC
+            )) {
+                try {
+                    record = AudioRecord(
+                        source,
+                        sampleRate,
+                        channelConfig,
+                        audioFormat,
+                        bufferSize
+                    )
+                    if (record.state == AudioRecord.STATE_INITIALIZED) {
+                        NovaLogger.i("AudioStreamManager", "AudioRecord initialized with audio source $source")
+                        break
+                    }
+                    record.release()
+                    record = null
+                } catch (e: Exception) {
+                    NovaLogger.w("AudioStreamManager", "Audio source $source failed", e)
+                    record = null
+                }
             }
 
             if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
-                record = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    sampleRate,
-                    channelConfig,
-                    audioFormat,
-                    bufferSize
-                )
-            }
-
-            if (record.state != AudioRecord.STATE_INITIALIZED) {
-                NovaLogger.e("AudioStreamManager", "AudioRecord failed to initialize.")
+                NovaLogger.e("AudioStreamManager", "AudioRecord failed to initialize with any audio source.")
                 DevDiagnostics.show(context, "AudioRecord FAILED to initialize", true)
-                record.release()
                 return false
             }
 
@@ -130,6 +132,13 @@ class AudioStreamManager(
             recordingJob = scope.launch {
                 val pcmBuffer = ShortArray(bufferSize / 2)
                 var chunkCount = 0L
+
+                // DEV-only: periodically flush recent raw PCM to a file for offline KWS analysis
+                var devDumpJob: Job? = null
+                val devPending = ArrayList<ShortArray>()
+                if (com.nova.assistant.core.config.NovaConfig.DEV) {
+                    devDumpJob = scope.launch { runDevPcmDump(devPending) }
+                }
 
                 try {
                     while (isActive && isRunning.get()) {
@@ -168,6 +177,9 @@ class AudioStreamManager(
                             val cb = currentCallback
                             if (cb != null && !isPaused.get()) {
                                 cb(pcmBuffer, readCount)
+                                if (devDumpJob != null) {
+                                    synchronized(devPending) { devPending.add(pcmBuffer.copyOf(readCount)) }
+                                }
                             }
                         } else if (readCount < 0) {
                             NovaLogger.w("AudioStreamManager", "AudioRecord read returned error code: $readCount")
@@ -179,6 +191,8 @@ class AudioStreamManager(
                 } catch (e: Exception) {
                     NovaLogger.e("AudioStreamManager", "Exception in audio recording loop", e)
                     DevDiagnostics.show(context, "AudioRecord Loop Exception: ${e.message}", true)
+                } finally {
+                    devDumpJob?.cancel()
                 }
             }
             return true
@@ -195,6 +209,7 @@ class AudioStreamManager(
 
     private fun setupBluetoothScoIfNeeded() {
         val am = audioManager ?: return
+        if (com.nova.assistant.core.config.NovaConfig.DEV_FORCE_BUILTIN_MIC) return
         if (am.isBluetoothScoAvailableOffCall) {
             try {
                 if (!isBluetoothScoStarted) {
@@ -214,6 +229,7 @@ class AudioStreamManager(
         if (isBluetoothScoStarted) {
             try {
                 am.stopBluetoothSco()
+                @Suppress("DEPRECATION")
                 am.isBluetoothScoOn = false
                 isBluetoothScoStarted = false
                 NovaLogger.d("AudioStreamManager", "Stopped Bluetooth SCO.")
@@ -237,6 +253,16 @@ class AudioStreamManager(
     private fun configurePreferredInputDevice(record: AudioRecord) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val am = audioManager ?: return
+            if (com.nova.assistant.core.config.NovaConfig.DEV_FORCE_BUILTIN_MIC) {
+                val builtin = am.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull {
+                    it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC
+                }
+                if (builtin != null) {
+                    val ok = record.setPreferredDevice(builtin)
+                    NovaLogger.i("AudioStreamManager", "[DEV] Forced built-in mic as preferred input: $ok")
+                    return
+                }
+            }
             val devices = am.getDevices(AudioManager.GET_DEVICES_INPUTS)
 
             // Prefer Wired Headset or Bluetooth Headset mic
@@ -323,4 +349,58 @@ class AudioStreamManager(
     }
 
     fun isCapturing(): Boolean = isRunning.get() && !isPaused.get()
+
+    /**
+     * DEV-only diagnostic: continuously appends raw 16-bit PCM (16 kHz mono) to
+     * nova_dev_stream.raw so captured audio can be analyzed offline (e.g. KWS debugging).
+     * Never runs in release mode (gated by NovaConfig.DEV at the call site).
+     */
+    private suspend fun runDevPcmDump(pending: ArrayList<ShortArray>) {
+        val dumpDir = context.getExternalFilesDir(null) ?: return
+        val rawFile = java.io.File(dumpDir, "nova_dev_stream.raw")
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            kotlinx.coroutines.delay(4000)
+            val batch = synchronized(pending) {
+                if (pending.isEmpty()) null else {
+                    val copy = ArrayList(pending)
+                    pending.clear()
+                    copy
+                }
+            } ?: continue
+            try {
+                if (rawFile.length() > 40_000_000L) rawFile.delete()
+                java.io.FileOutputStream(rawFile, true).use { out ->
+                    for (chunk in batch) {
+                        val bytes = ByteArray(chunk.size * 2)
+                        for (i in chunk.indices) {
+                            bytes[i * 2] = (chunk[i].toInt() and 0xFF).toByte()
+                            bytes[i * 2 + 1] = ((chunk[i].toInt() shr 8) and 0xFF).toByte()
+                        }
+                        out.write(bytes)
+                    }
+                }
+            } catch (e: Exception) {
+                NovaLogger.w("AudioStreamManager", "DEV PCM dump failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun writeWav(file: java.io.File, samples: ShortArray) {
+        val dataLen = samples.size * 2
+        java.io.DataOutputStream(java.io.BufferedOutputStream(java.io.FileOutputStream(file))).use { out ->
+            out.writeBytes("RIFF"); out.writeIntLe(36 + dataLen); out.writeBytes("WAVE")
+            out.writeBytes("fmt "); out.writeIntLe(16); out.writeShortLe(1); out.writeShortLe(1)
+            out.writeIntLe(sampleRate); out.writeIntLe(sampleRate * 2); out.writeShortLe(2); out.writeShortLe(16)
+            out.writeBytes("data"); out.writeIntLe(dataLen)
+            for (s in samples) out.writeShortLe(s.toInt() and 0xFFFF)
+        }
+    }
+
+    private fun java.io.DataOutputStream.writeIntLe(v: Int) {
+        write(v and 0xFF); write((v shr 8) and 0xFF); write((v shr 16) and 0xFF); write((v shr 24) and 0xFF)
+    }
+
+    private fun java.io.DataOutputStream.writeShortLe(v: Int) {
+        write(v and 0xFF); write((v shr 8) and 0xFF)
+    }
 }

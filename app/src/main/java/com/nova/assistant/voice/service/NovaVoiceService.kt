@@ -21,6 +21,7 @@ import com.nova.assistant.actions.model.ActionResult
 import com.nova.assistant.ai.parser.CommandParser
 import com.nova.assistant.ai.parser.NaturalLanguageIntentParser
 import com.nova.assistant.android.earphones.EarphoneConnectionManager
+import com.nova.assistant.core.config.NovaConfig
 import com.nova.assistant.core.diagnostics.DevDiagnostics
 import com.nova.assistant.core.logging.NovaLogger
 import com.nova.assistant.voice.audio.AudioFeedbackPlayer
@@ -59,6 +60,9 @@ class NovaVoiceService : Service() {
         const val ACTION_SYNC_STATE = "com.nova.assistant.action.SYNC_STATE"
         const val ACTION_PAUSE_MIC = "com.nova.assistant.action.PAUSE_MIC"
         const val ACTION_RESUME_MIC = "com.nova.assistant.action.RESUME_MIC"
+
+        /** DEV-only: speaks a test sentence to verify TTS output routing without needing a wake event. */
+        const val ACTION_DEV_TEST_TTS = "com.nova.assistant.action.DEV_TEST_TTS"
 
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "nova_voice_service_channel"
@@ -129,7 +133,7 @@ class NovaVoiceService : Service() {
         wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NOVA:VoiceProcessingLock")
 
         audioStreamManager = AudioStreamManager(this)
-        wakeWordEngine = com.nova.assistant.voice.wakeword.NeuralWakeWordEngine(context = this)
+        wakeWordEngine = com.nova.assistant.voice.wakeword.SherpaOnnxWakeWordEngine(context = this)
         speakerVerifier = LocalSpeakerEmbeddingVerifier(this, verificationThreshold = 0.48f)
         earphoneConnectionManager = EarphoneConnectionManager(this)
         speechToTextEngine = AndroidSpeechRecognizerEngine(this)
@@ -176,6 +180,16 @@ class NovaVoiceService : Service() {
             }
             ACTION_SYNC_STATE -> {
                 evaluateHandsFreeState()
+            }
+            ACTION_DEV_TEST_TTS -> {
+                if (NovaConfig.DEV) {
+                    NovaLogger.i("NovaVoiceService", "[DEV] TTS test triggered")
+                    DevDiagnostics.show(this, "TTS TEST: speaking...")
+                    textToSpeechEngine.speak("TTS test. If you can hear this, speech output is working.") {
+                        NovaLogger.i("NovaVoiceService", "[DEV] TTS test utterance DONE callback fired")
+                        DevDiagnostics.show(this, "TTS TEST: done callback fired")
+                    }
+                }
             }
             ACTION_START -> {
                 startAssistantService()
@@ -322,15 +336,23 @@ class NovaVoiceService : Service() {
         updateNotification("Hearing command...")
         _serviceStatusMessage.value = "Hearing command..."
 
-        // 3. Pause AudioRecord to yield microphone hardware to SpeechRecognizer
-        audioStreamManager.pauseStreaming()
+        // 3. Fully release the AudioRecord and the Bluetooth SCO link. Holding SCO while speaking
+        //    silences ALL app audio output on this device (chime and TTS become inaudible), so the
+        //    response phase must run with SCO down. Command capture then uses the standard mic path,
+        //    which also removes SpeechRecognizer/AudioRecord mic contention.
+        audioStreamManager.stopStreaming()
 
-        // 4. Play immediate wake chime for confirmed wake word
-        feedbackPlayer.playWakeChime()
-
-        // 5. Start Command Capture
+        // 4. Play the wake chime once A2DP output has re-established
         serviceScope.launch {
-            kotlinx.coroutines.delay(180)
+            kotlinx.coroutines.delay(350)
+            feedbackPlayer.playWakeChime()
+        }
+
+        // 5. Start Command Capture immediately so the beginning of the command is not lost.
+        //    Pre-wake audio is preserved in the AudioStreamManager ring buffer (used for speaker
+        //    verification and diagnostics).
+        serviceScope.launch {
+            kotlinx.coroutines.delay(100)
             NovaLogger.i("NovaVoiceService", "[Pipeline:CommandCapture] Starting SpeechRecognizer engine...")
             DevDiagnostics.show(this@NovaVoiceService, "Hearing command...")
             DevDiagnostics.logEvent("STT", "HEARING", "SpeechRecognizer listening for user command...", true)
@@ -431,7 +453,9 @@ class NovaVoiceService : Service() {
     private fun resumeWakeWordListening(statusText: String) {
         isProcessingCommand.set(false)
         wakeWordEngine.reset()
+        // Re-acquire the mic + SCO link for standby wake listening through the earphone mic.
         audioStreamManager.resumeStreaming()
+        startWakeWordListening()
         updateNotification(statusText)
         _serviceStatusMessage.value = statusText
         releaseWakeLock()
@@ -469,6 +493,7 @@ class NovaVoiceService : Service() {
             DevDiagnostics.show(this, "Microphone Muted")
         } else {
             audioStreamManager.resumeStreaming()
+            startWakeWordListening()
             updateNotification("Listening for 'Hey NOVA' • Hands-free ready")
             _serviceStatusMessage.value = "Listening for 'Hey NOVA'"
             NovaLogger.i("NovaVoiceService", "Microphone unmuted.")

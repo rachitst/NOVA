@@ -9,4 +9,11 @@ package com.nova.assistant.core.config
  */
 object NovaConfig {
     var DEV: Boolean = true
+
+    /**
+     * DEV-only diagnostic override: force the built-in microphone instead of the earphone mic.
+     * Used to isolate earbud-hardware audio quality from the software pipeline during testing.
+     * MUST remain false in production.
+     */
+    var DEV_FORCE_BUILTIN_MIC: Boolean = false
 }

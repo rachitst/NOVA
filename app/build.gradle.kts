@@ -17,6 +17,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildTypes {
@@ -41,6 +44,8 @@ android {
 }
 
 dependencies {
+    // sherpa-onnx: Apache-2.0 on-device speech runtime (keyword spotting + speaker verification)
+    implementation(files("libs/sherpa-onnx-1.13.7.aar"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
